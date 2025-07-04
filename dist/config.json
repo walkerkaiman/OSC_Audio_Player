@@ -1,0 +1,23 @@
+{
+    "osc_port": 8000,
+    "tracks": [
+        {
+            "file": "Arcade.wav",
+            "volume": 0.92,
+            "osc_message": "/1",
+            "mute": false
+        },
+        {
+            "file": "Toy.wav",
+            "volume": 0.66,
+            "osc_message": "/2",
+            "mute": false
+        },
+        {
+            "file": "Sweep.wav",
+            "volume": 0.85,
+            "osc_message": "/3",
+            "mute": false
+        }
+    ]
+}

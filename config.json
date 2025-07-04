@@ -1,23 +1,18 @@
 {
-    "osc_port": 6565,
-    "tracks": [
-        {
-            "file": "Arcade.wav",
-            "volume": 0.67,
-            "osc_message": "/trigger",
-            "mute": false
-        },
-        {
-            "file": "Sweep.wav",
-            "volume": 0.77,
-            "osc_message": "/trigger",
-            "mute": false
-        },
-        {
-            "file": "Toy.wav",
-            "volume": 0.59,
-            "osc_message": "/trigger",
-            "mute": false
-        }
-    ]
+  "osc_port": 8000,
+  "master_volume": 0.92,
+  "tracks": [
+    {
+      "file": "Arcade.wav",
+      "volume": 0.88,
+      "mute": false,
+      "osc_message": "/ping"
+    },
+    {
+      "file": "Sweep.wav",
+      "volume": 0.85,
+      "mute": false,
+      "osc_message": "/2"
+    }
+  ]
 }

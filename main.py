@@ -8,8 +8,7 @@ from pythonosc import dispatcher, osc_server
 from PIL import Image, ImageTk
 from pydub import AudioSegment
 import matplotlib.pyplot as plt
-import socket
-import psutil
+import netifaces
 import time
 
 CONFIG_FILE = "config.json"
@@ -17,6 +16,9 @@ AUDIO_FOLDER = "Audio"
 os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
 mixer.init()
+
+osc_server_instance = None
+osc_server_thread = None
 
 # Global track list
 tracks = []
@@ -44,21 +46,28 @@ label_opts = {"bg": "black", "fg": "white", "font": font_settings}
 title_label_opts = {"bg": "black", "fg": "white", "font": title_font_settings}
 entry_opts = {"bg": "#222", "fg": "white", "insertbackground": "white", "font": font_settings}
 
-# Helper function to get IP addresses
+# Helper function to get WiFi and Ethernet IP addresses
 def get_ip_addresses():
-    wifi_ip = "N/A"
-    eth_ip = "N/A"
-    for iface, addrs in psutil.net_if_addrs().items():
-        for addr in addrs:
-            if addr.family == socket.AF_INET:
-                if "Wi-Fi" in iface or "wlan" in iface.lower():
-                    wifi_ip = addr.address
-                elif "Ethernet" in iface or "eth" in iface.lower():
-                    eth_ip = addr.address
-    return wifi_ip, eth_ip
+    valid_ips = []
+    for iface in netifaces.interfaces():
+        addrs = netifaces.ifaddresses(iface)
+        ipv4 = addrs.get(netifaces.AF_INET)
+        if ipv4:
+            for addr in ipv4:
+                ip = addr.get("addr")
+                if ip and not ip.startswith("127."):
+                    valid_ips.append(ip)
+
+    # Fill with placeholders if fewer than 2
+    valid_ips += ["No IP Assigned"] * (2 - len(valid_ips))
+    return valid_ips[0], valid_ips[1]
 
 wifi_ip, eth_ip = get_ip_addresses()
 
+def on_input_unfocus(event):
+    # Small delay to allow value to settle
+    root.after(100, restart_osc_server)
+    
 # OSC + Master Volume row
 info_frame = tk.Frame(root, bg="black")
 info_frame.pack(fill="x", pady=(20, 10), padx=10)
@@ -73,6 +82,7 @@ osc_port_frame.pack(side="left", padx=(0, 20))
 tk.Label(osc_port_frame, text="OSC Port:", **title_label_opts).pack(anchor="w")
 osc_port = tk.IntVar(value=config.get("osc_port", 8000))
 osc_entry = tk.Entry(osc_port_frame, textvariable=osc_port, width=6, **entry_opts)
+osc_entry.bind("<FocusOut>", on_input_unfocus)
 osc_entry.pack()
 
 vol_frame = tk.Frame(info_frame, bg="black")
@@ -80,7 +90,11 @@ vol_frame.pack(side="right")
 
 vol_label = tk.Label(vol_frame, text="Master Volume", **title_label_opts)
 vol_label.pack(anchor="e")
-master_volume = tk.DoubleVar(value=1.0)
+
+# Master volume control
+master_volume = tk.DoubleVar(value=config.get("master_volume", 1.0))
+master_volume.trace_add("write", lambda *args: save_config())
+
 tk.Scale(vol_frame, from_=0, to=1, resolution=0.01, orient="horizontal", variable=master_volume,
          bg="black", fg="white", troughcolor="#444", highlightthickness=0, length=200).pack(anchor="e")
 
@@ -170,19 +184,26 @@ def play_track(track):
     playing_tracks.add(id(channel))
 
 def save_config():
-    to_save = {
+    config_data = {
         "osc_port": osc_port.get(),
+        "master_volume": master_volume.get(),
         "tracks": []
     }
-    for t in tracks:
-        to_save["tracks"].append({
-            "file": t["file"],
-            "volume": t["volume_var"].get(),
-            "osc_message": t["osc_message"].get(),
-            "mute": t["mute_var"].get()
-        })
+    for track in tracks:
+        if track.get("file"):
+            osc_addr = track["osc_message"].get().strip()
+            if not osc_addr or osc_addr == "/trigger":  # Skip blank or default placeholder
+                continue
+            config_data["tracks"].append({
+                "file": track["file"],
+                "volume": track["volume_var"].get(),
+                "mute": track["mute_var"].get(),
+                "osc_message": osc_addr
+            })
     with open(CONFIG_FILE, "w") as f:
-        json.dump(to_save, f, indent=4)
+        json.dump(config_data, f, indent=2)
+
+
 
 def draw_waveform(filepath, canvas):
     try:
@@ -277,7 +298,9 @@ def add_track(track_data):
     col1 = tk.Frame(track_frame, bg="black")
     col1.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
     volume_var = tk.DoubleVar(value=track_data.get("volume", 1.0))
+    volume_var.trace_add("write", lambda *args: save_config())
     mute_var = tk.BooleanVar(value=track_data.get("mute", False))
+    mute_var.trace_add("write", lambda *args: save_config())
     tk.Scale(col1, from_=0, to=1, resolution=0.01, orient="horizontal",
              variable=volume_var, label="Volume", length=120, bg="black",
              fg="white", troughcolor="#444", highlightthickness=0).pack()
@@ -288,13 +311,18 @@ def add_track(track_data):
     col2.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
     tk.Label(col2, text="OSC Address", **label_opts).pack(anchor="w")
     osc_message = tk.StringVar(value=track_data.get("osc_message", "/trigger"))
-    tk.Entry(col2, textvariable=osc_message, **entry_opts).pack(fill="x")
+    osc_message.trace_add("write", lambda *args: save_config()) # Save config and restart OSC server on change
+    osc_entry = tk.Entry(col2, textvariable=osc_message, **entry_opts)
+    osc_entry.pack(fill="x")
+    osc_entry.bind("<FocusOut>", lambda e, t=track_data: (save_config(), restart_osc_server()))
+
+
 
     col3 = tk.Frame(track_frame, bg="black")
     col3.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
     play_btn = tk.Button(col3, text="Play", command=lambda: play_track(track), bg="#333", fg="white")
     play_btn.pack(fill="x", pady=(0, 4))
-    remove_btn = tk.Button(col3, text="Remove", command=lambda: remove_track(track), bg="#500", fg="white")
+    remove_btn = tk.Button(col3, text="Remove", command=lambda: (remove_track(track), save_config()), bg="#500", fg="white")
     remove_btn.pack(fill="x")
 
     filename = track_data.get("file", "")
@@ -316,6 +344,7 @@ def add_track(track_data):
                 with open(path, "rb") as fsrc, open(dest, "wb") as fdst:
                     fdst.write(fsrc.read())
             track["file"] = filename
+            save_config()
             try:
                 track["sound"] = mixer.Sound(dest)
                 draw_waveform(dest, canvas)
@@ -338,30 +367,54 @@ def add_track(track_data):
 
     volume_var.trace_add("write", lambda *args: update_volume(track))
     mute_var.trace_add("write", lambda *args: update_volume(track))
-    master_volume.trace_add("write", lambda *args: update_volume(track))
+    
 
     tracks.append(track)
     save_config()
 
-def start_osc_server(port):
-    disp = dispatcher.Dispatcher()
-    for track in tracks:
-        if "osc_message" in track:
-            trigger = track["osc_message"].get()
-            disp.map(trigger, lambda addr, *args, tr=track: play_track(tr))
+
+
+def restart_osc_server():
+    global osc_server_instance, osc_server_thread
+
+    if osc_server_instance:
+        try:
+            osc_server_instance.shutdown()
+            osc_server_instance.server_close()
+            osc_server_instance = None
+            print("🔁 Previous OSC server shut down.")
+        except Exception as e:
+            print(f"⚠️ Error shutting down previous server: {e}")
+
     try:
-        server = osc_server.ThreadingOSCUDPServer(("0.0.0.0", int(port)), disp)
-        print(f"✅ OSC Server started on port {port}")
-        server.serve_forever()
+        disp = dispatcher.Dispatcher()
+        
+        for track in tracks:
+            trigger = track.get("osc_message")
+            if trigger:
+                address = trigger.get()
+                disp.map(address, lambda addr, *args, tr=track: play_track(tr))
+
+        ip = "0.0.0.0"
+        port = osc_port.get()
+        osc_server_instance = osc_server.ThreadingOSCUDPServer((ip, port), disp)
+
+        def run_server():
+            print(f"✅ OSC Server started on port {port}")
+            osc_server_instance.serve_forever()
+
+        osc_server_thread = threading.Thread(target=run_server, daemon=True)
+        osc_server_thread.start()
     except Exception as e:
         print(f"❌ Failed to start OSC server: {e}")
+
 
 for tdata in config.get("tracks", []):
     add_track(tdata)
 
 add_track_button.config(command=lambda: add_track({}))
 
-osc_thread = threading.Thread(target=lambda: start_osc_server(osc_port.get()), daemon=True)
+osc_thread = threading.Thread(target=lambda: restart_osc_server(), daemon=True)
 osc_thread.start()
 
 def on_closing():
