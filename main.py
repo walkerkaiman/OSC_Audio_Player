@@ -117,6 +117,20 @@ track_container = scrollable_frame
 add_track_button = tk.Button(root, text="Add Track", **label_opts)
 add_track_button.pack(pady=10)
 
+log_frame = tk.Frame(root, bg="black")
+log_frame.pack(fill="both", padx=10, pady=5, side="bottom")
+
+log_text = tk.Text(log_frame, height=8, bg="#111", fg="white", insertbackground="white",
+                   font=("Consolas", 9), wrap="word")
+log_text.pack(fill="both", expand=True)
+log_text.configure(state="disabled")
+
+def log(message):
+    log_text.configure(state="normal")
+    log_text.insert("end", f"{time.strftime('%H:%M:%S')} - {message}\n")
+    log_text.configure(state="disabled")
+    log_text.see("end")
+    
 # Enable mouse wheel scrolling on the canvas
 def _on_mousewheel(event):
     canvas.yview_scroll(int(-1*(event.delta/120)), "units")
@@ -157,32 +171,6 @@ def update_audio_cursor():
 cursor_thread = threading.Thread(target=lambda: update_audio_cursor(), daemon=True)
 cursor_thread.start()
 
-def play_track(track):
-    if not track.get("sound"):
-        return
-
-    sound = mixer.Sound(track["file"])
-    volume = 0 if track["mute_var"].get() else track["volume_var"].get() * master_volume.get()
-    channel = sound.play()
-    if not channel:
-        return
-
-    channel.set_volume(volume)
-    track["start_time"] = time.time()
-    track["duration"] = sound.get_length()
-    track["channel"] = channel
-
-    track["file_label"].config(text=os.path.basename(track["file"]))
-
-    def stop_check():
-        if not channel.get_busy():
-            track["channel"] = None
-        else:
-            root.after(100, stop_check)
-
-    stop_check()
-    playing_tracks.add(id(channel))
-
 def save_config():
     config_data = {
         "osc_port": osc_port.get(),
@@ -202,8 +190,7 @@ def save_config():
             })
     with open(CONFIG_FILE, "w") as f:
         json.dump(config_data, f, indent=2)
-
-
+    log("💾 Configuration saved.")
 
 def draw_waveform(filepath, canvas):
     try:
@@ -232,7 +219,7 @@ def draw_waveform(filepath, canvas):
         canvas.update_idletasks()
         update_canvas()
     except Exception as e:
-        print(f"Waveform error: {e}")
+        log(f"Waveform error: {e}")
 
 def update_volume(track):
     ch = track.get("channel")
@@ -262,7 +249,8 @@ def play_track(track):
     channel.set_volume(volume)
     track["channel"] = channel
     playing_tracks.add(key)
-
+    log(f"🎵 Playing: {os.path.basename(track['file'])} (Muted: {track['mute_var'].get()})")
+    
     def stop_check():
         if not channel.get_busy():
             playing_tracks.discard(key)
@@ -316,8 +304,6 @@ def add_track(track_data):
     osc_entry.pack(fill="x")
     osc_entry.bind("<FocusOut>", lambda e, t=track_data: (save_config(), restart_osc_server()))
 
-
-
     col3 = tk.Frame(track_frame, bg="black")
     col3.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
     play_btn = tk.Button(col3, text="Play", command=lambda: play_track(track), bg="#333", fg="white")
@@ -333,7 +319,7 @@ def add_track(track_data):
             sound = mixer.Sound(fullpath)
             draw_waveform(fullpath, canvas)
         except:
-            print("⚠️ Couldn't load preconfigured audio.")
+            log("⚠️ Couldn't load preconfigured audio.")
 
     def load_file():
         path = filedialog.askopenfilename()
@@ -349,7 +335,7 @@ def add_track(track_data):
                 track["sound"] = mixer.Sound(dest)
                 draw_waveform(dest, canvas)
             except:
-                print("⚠️ Invalid audio file")
+                log("⚠️ Invalid audio file")
         save_config()
 
     file_label.bind("<Button-1>", lambda e: load_file())
@@ -368,11 +354,11 @@ def add_track(track_data):
     volume_var.trace_add("write", lambda *args: update_volume(track))
     mute_var.trace_add("write", lambda *args: update_volume(track))
     
-
     tracks.append(track)
     save_config()
 
-
+def log_osc_message(address, *args):
+    log(f"📡 OSC message received: {address} {args}")
 
 def restart_osc_server():
     global osc_server_instance, osc_server_thread
@@ -382,13 +368,15 @@ def restart_osc_server():
             osc_server_instance.shutdown()
             osc_server_instance.server_close()
             osc_server_instance = None
-            print("🔁 Previous OSC server shut down.")
+            log("🔁 Previous OSC server shut down.")
         except Exception as e:
-            print(f"⚠️ Error shutting down previous server: {e}")
+            log(f"⚠️ Error shutting down previous server: {e}")
 
     try:
         disp = dispatcher.Dispatcher()
         
+        disp.map("/*", log_osc_message)  # Log any OSC message
+
         for track in tracks:
             trigger = track.get("osc_message")
             if trigger:
@@ -400,13 +388,13 @@ def restart_osc_server():
         osc_server_instance = osc_server.ThreadingOSCUDPServer((ip, port), disp)
 
         def run_server():
-            print(f"✅ OSC Server started on port {port}")
+            log(f"✅ OSC Server started on port {port}")
             osc_server_instance.serve_forever()
 
         osc_server_thread = threading.Thread(target=run_server, daemon=True)
         osc_server_thread.start()
     except Exception as e:
-        print(f"❌ Failed to start OSC server: {e}")
+        log(f"❌ Failed to start OSC server: {e}")
 
 
 for tdata in config.get("tracks", []):
