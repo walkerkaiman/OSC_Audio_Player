@@ -10,11 +10,24 @@ from pydub import AudioSegment
 import matplotlib.pyplot as plt
 import netifaces
 import time
+import sys
 
-CONFIG_FILE = "config.json"
-AUDIO_FOLDER = "Audio"
+
+def resource_path(relative_path):
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.abspath(relative_path)
+
+CONFIG_FILE = resource_path("config.json")
+AUDIO_FOLDER = resource_path("Audio")
+
 os.makedirs(AUDIO_FOLDER, exist_ok=True)
 
+# Create config file if it doesn't exist
+if not os.path.exists(CONFIG_FILE):
+    with open(CONFIG_FILE, "w") as f:
+        json.dump({"tracks": [], "osc_port": 8000, "master_volume": 1.0}, f, indent=2)
+        
 mixer.init()
 
 osc_server_instance = None
