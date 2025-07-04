@@ -1,0 +1,23 @@
+{
+    "osc_port": 6565,
+    "tracks": [
+        {
+            "file": "Arcade.wav",
+            "volume": 0.67,
+            "osc_message": "/trigger",
+            "mute": false
+        },
+        {
+            "file": "Sweep.wav",
+            "volume": 0.77,
+            "osc_message": "/trigger",
+            "mute": false
+        },
+        {
+            "file": "Toy.wav",
+            "volume": 0.59,
+            "osc_message": "/trigger",
+            "mute": false
+        }
+    ]
+}
