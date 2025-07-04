@@ -12,7 +12,6 @@ import netifaces
 import time
 import sys
 
-
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
@@ -48,7 +47,7 @@ if os.path.exists(CONFIG_FILE):
 
 # GUI root
 root = tk.Tk()
-root.title("Sound Server")
+root.title("OSC Audio Player")
 root.configure(bg="black")
 root.geometry("700x800")
 root.resizable(False, True)

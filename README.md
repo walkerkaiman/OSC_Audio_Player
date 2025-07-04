@@ -1,4 +1,4 @@
-# 🎧 OSC Sound Server
+# 🎧 OSC Audio Player
 
 A GUI-based Python application to trigger and control audio tracks via OSC (Open Sound Control). Designed for use in **interactive installations**, stage shows, or responsive art environments.
 
